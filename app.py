@@ -43,8 +43,60 @@ with st.sidebar:
         help="Your key is only used for this session and is never stored.",
     )
 
-    default_model = "claude-sonnet-4-6" if provider == "anthropic" else "gpt-4.1"
-    model = st.text_input("Model", value=default_model)
+    ANTHROPIC_MODELS = [
+        # --- Latest (Jun 2026) ---
+        "claude-fable-5",          # Most capable – long-running agents
+        "claude-opus-4-8",         # Complex agentic coding & enterprise
+        "claude-sonnet-5",         # Best speed / intelligence balance
+        "claude-haiku-4-5",        # Fastest, near-frontier intelligence
+        # --- Previous generation (still supported) ---
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+    ]
+    OPENAI_MODELS = [
+        # --- Latest GPT-5.6 family ---
+        "gpt-5.6-sol",             # Most powerful – complex reasoning & coding
+        "gpt-5.6-terra",           # Balanced intelligence and cost
+        "gpt-5.6-luna",            # Cost-optimised, high-volume
+        # --- Previous generation (still supported) ---
+        "gpt-5.4-mini",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4o",
+        "gpt-4o-mini",
+    ]
+    model_options = ANTHROPIC_MODELS if provider == "anthropic" else OPENAI_MODELS
+    default_model = "claude-sonnet-5" if provider == "anthropic" else "gpt-5.6-terra"
+    model = st.selectbox(
+        "Model",
+        options=model_options,
+        index=model_options.index(default_model),
+        help=(
+            "Powerful: claude-fable-5 / gpt-5.6-sol — highest accuracy.\n"
+            "Balanced: claude-sonnet-5 / gpt-5.6-terra — recommended default.\n"
+            "Light: claude-haiku-4-5 / gpt-5.6-luna — fastest and cheapest."
+        ),
+    )
+
+    # Reasoning effort — only relevant for GPT-5.6 and o-series models.
+    _supports_effort = provider == "openai" and model.startswith(("gpt-5.", "o1", "o3", "o4"))
+    if _supports_effort:
+        reasoning_effort = st.select_slider(
+            "Reasoning effort",
+            options=["low", "medium", "high", "max"],
+            value="high",
+            help=(
+                "How hard the model thinks before answering.\n"
+                "low — fastest, cheapest, more variable outputs.\n"
+                "medium — balanced.\n"
+                "high — recommended for data extraction (default).\n"
+                "max — most thorough, slowest, most expensive."
+            ),
+        )
+    else:
+        reasoning_effort = "high"  # ignored for non-supporting models
 
     use_cache = st.checkbox(
         "Cache LLM calls on disk",
@@ -178,6 +230,7 @@ if run:
                 model=model,
                 use_cache=use_cache,
                 max_chars_per_chunk=max_chunk_chars,
+                reasoning_effort=reasoning_effort,
             )
             all_rows.extend(rows)
             all_warnings.extend(warns)
@@ -268,3 +321,130 @@ if st.session_state.get("extracted_rows"):
 
             st.markdown("**Row-by-row diff**")
             st.dataframe(result.diff_table, use_container_width=True)
+
+# ----------------------------------------------------------------------------
+# Model reference guide
+# ----------------------------------------------------------------------------
+st.divider()
+with st.expander("📖 LLM model reference guide", expanded=False):
+    st.markdown(
+        "Use this table to pick the right model for your workload. "
+        "Prices are per **million tokens** (input / output) as listed in official provider docs."
+    )
+
+    st.markdown("#### 🟣 Anthropic — Claude models")
+    anthropic_data = {
+        "Model ID": [
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5",
+        ],
+        "Tier": [
+            "🏆 Most capable",
+            "💪 Powerful",
+            "⚖️ Balanced",
+            "⚡ Fast / Light",
+            "📦 Legacy",
+            "📦 Legacy",
+            "📦 Legacy",
+            "📦 Legacy",
+        ],
+        "Best for": [
+            "Long-running agents, highest accuracy",
+            "Complex agentic coding & enterprise tasks",
+            "Best speed / intelligence trade-off (recommended default)",
+            "High-volume, latency-sensitive workloads",
+            "Previous-generation agentic tasks",
+            "Previous-generation tasks with extended thinking",
+            "Previous-generation balanced tasks",
+            "Previous-generation fast tasks",
+        ],
+        "Price (input / output per MTok)": [
+            "$10 / $50",
+            "$5 / $25",
+            "$3 / $15 (intro: $2 / $10 until Aug 2026)",
+            "$1 / $5",
+            "$5 / $25",
+            "$5 / $25",
+            "$3 / $15",
+            "$3 / $15",
+        ],
+        "Context window": [
+            "1 M tokens",
+            "1 M tokens",
+            "1 M tokens",
+            "200 K tokens",
+            "1 M tokens",
+            "1 M tokens",
+            "1 M tokens",
+            "200 K tokens",
+        ],
+    }
+    st.dataframe(pd.DataFrame(anthropic_data), use_container_width=True, hide_index=True)
+
+    st.markdown("#### 🟢 OpenAI — GPT models")
+    openai_data = {
+        "Model ID": [
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-5.4-mini",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4o",
+            "gpt-4o-mini",
+        ],
+        "Tier": [
+            "🏆 Most capable",
+            "⚖️ Balanced",
+            "⚡ Fast / Light",
+            "⚡ Fast / Light",
+            "📦 Legacy",
+            "📦 Legacy",
+            "📦 Legacy",
+            "📦 Legacy",
+        ],
+        "Best for": [
+            "Complex reasoning, coding, highest accuracy",
+            "Balanced intelligence and cost (recommended default)",
+            "Cost-sensitive, high-volume workloads",
+            "Lightweight tasks at low cost",
+            "Previous-generation general tasks",
+            "Previous-generation lightweight tasks",
+            "Previous-generation multimodal tasks",
+            "Previous-generation cost-optimised tasks",
+        ],
+        "Price (input / output per MTok)": [
+            "$5 / $30",
+            "$2.50 / $15",
+            "$1 / $6",
+            "—",
+            "—",
+            "—",
+            "—",
+            "—",
+        ],
+        "Context window": [
+            "1.05 M tokens",
+            "1.05 M tokens",
+            "1.05 M tokens",
+            "—",
+            "—",
+            "—",
+            "—",
+            "—",
+        ],
+    }
+    st.dataframe(pd.DataFrame(openai_data), use_container_width=True, hide_index=True)
+
+    st.caption(
+        "Prices and specs sourced from official provider documentation (Anthropic: platform.claude.com/docs · "
+        "OpenAI: developers.openai.com/api/docs/models). Legacy model pricing marked '—' varies — check provider "
+        "docs for current rates. Knowledge cutoff for all GPT-5.6 models: Feb 2026; Claude Fable 5 / Opus 4.8 / "
+        "Sonnet 5: Jan 2026."
+    )
