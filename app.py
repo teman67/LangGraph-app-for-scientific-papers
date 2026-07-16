@@ -123,6 +123,17 @@ with st.sidebar:
         "4. Ontology file (.ttl)"
     )
 
+    st.divider()
+    st.markdown(
+        "[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)]"
+        "(https://github.com/teman67/LangGraph-app-for-scientific-papers)"
+    )
+    st.markdown(
+        "**Developer:** Amirhossein Bayani  \n"
+        "[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?logo=linkedin)]"
+        "(https://www.linkedin.com/in/amirhosseinbayani/)"
+    )
+
 # ----------------------------------------------------------------------------
 # Main: file uploads
 # ----------------------------------------------------------------------------
