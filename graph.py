@@ -124,6 +124,15 @@ Field definitions (ontology-grounded — use these to decide what counts as a ma
 {fields_text}
 
 RULES
+- **PRIORITY: always prefer values from numbered tables** (Table 1, Table 2, etc.) over
+  values mentioned in prose, the abstract, or the conclusions. Prose often rounds
+  or approximates; tables contain the authoritative numbers.
+- Where a table provides a value with an uncertainty (e.g. "159.74 ± 19.18 h"),
+  capture both the central value AND the uncertainty in the same field
+  (e.g. "159.74 ± 19.18 h") — do not drop the ± term.
+- When the same property (e.g. grain size) is reported at multiple processing stages,
+  extract the value that corresponds to the final heat-treated state of that sample,
+  and note the stage in parentheses if ambiguous (e.g. "170 µm (after full aging)").
 - If a value is not reported in the text, use an empty string "" for that field —
   never invent or guess numeric values.
 - Preserve original units in the extracted string (e.g. "650 C", "159.74 h").
@@ -132,6 +141,9 @@ RULES
   record's data came from, put a short verbatim supporting quote plus the page
   number in the "evidence" field (e.g. "p.4: '625 MPa, 650 C, ...'"), otherwise
   leave "evidence" as an empty string.
+- Emit one record per distinct test condition/heat-treatment scheme. Do not merge
+  multiple conditions into one row and do not emit duplicate rows for the same
+  condition.
 """
 
 
@@ -182,6 +194,7 @@ def extract_single_document(
     model: str,
     use_cache: bool = True,
     max_chars_per_chunk: int = 15000,
+    reasoning_effort: str = "high",
 ) -> tuple[List[Dict[str, Any]], List[str]]:
     system_prompt = build_system_prompt(column_mappings, ontology_terms)
     json_schema = build_json_schema(data_columns)
@@ -191,8 +204,9 @@ def extract_single_document(
     warnings: List[str] = []
 
     for chunk_idx, chunk in enumerate(chunks):
+        table_hint = "(this chunk contains one or more data tables — extract values from the tables first)" if "Table" in chunk or "±" in chunk else ""
         user_prompt = (
-            f"Source document: {doc.name} (chunk {chunk_idx + 1}/{len(chunks)})\n\n"
+            f"Source document: {doc.name} (chunk {chunk_idx + 1}/{len(chunks)}) {table_hint}\n\n"
             f"--- BEGIN TEXT ---\n{chunk}\n--- END TEXT ---"
         )
 
@@ -209,6 +223,7 @@ def extract_single_document(
                 user_prompt=user_prompt,
                 json_schema=json_schema,
                 use_cache=use_cache,
+                reasoning_effort=reasoning_effort,
             )
             records = result.get("records", [])
         except Exception as e:  # noqa: BLE001
@@ -229,6 +244,7 @@ def extract_single_document(
                     system_prompt=system_prompt,
                     user_prompt=repair_prompt,
                     use_cache=use_cache,
+                    reasoning_effort=reasoning_effort,
                 )
                 records = _parse_json_array_fallback(raw)
             except Exception as e2:  # noqa: BLE001

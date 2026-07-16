@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 import openpyxl
-from pypdf import PdfReader
+import pdfplumber
 
 
 @dataclass
@@ -124,13 +124,51 @@ def strip_introduction(text: str) -> tuple[str, bool]:
     return "\n".join(new_lines), True
 
 
+def _render_table(table: list) -> str:
+    """Convert a pdfplumber table (list of rows, each a list of cells) to a
+    pipe-delimited markdown table so column alignment is unambiguous for the LLM."""
+    if not table:
+        return ""
+    # Replace None cells with empty string
+    rows = [[str(c).strip() if c is not None else "" for c in row] for row in table]
+    # Compute column widths for readability
+    col_widths = [max(len(r[i]) for r in rows if i < len(r)) for i in range(max(len(r) for r in rows))]
+    lines = []
+    for idx, row in enumerate(rows):
+        padded = [row[i].ljust(col_widths[i]) if i < len(row) else " " * col_widths[i] for i in range(len(col_widths))]
+        lines.append("| " + " | ".join(padded) + " |")
+        if idx == 0:  # header separator
+            lines.append("|" + "|".join("-" * (w + 2) for w in col_widths) + "|")
+    return "\n".join(lines)
+
+
 def read_pdf(file_like) -> str:
-    """Extract text page by page, inserting `[[page N]]` markers so the LLM
-    can cite an approximate page number for provenance."""
-    reader = PdfReader(file_like)
+    """Extract text page by page using pdfplumber, inserting `[[page N]]` markers
+    for provenance and rendering detected tables as pipe-delimited markdown so
+    the LLM receives unambiguous column-aligned data instead of scrambled text."""
     pages = []
-    for i, page in enumerate(reader.pages, start=1):
-        pages.append(f"[[page {i}]]\n{page.extract_text() or ''}")
+    with pdfplumber.open(file_like) as pdf:
+        for i, page in enumerate(pdf.pages, start=1):
+            parts = [f"[[page {i}]]"]
+            # Extract tables first and note their bounding boxes so we can
+            # exclude those regions from the plain-text extraction (avoids
+            # double-counting the same numbers in two formats).
+            tables = page.extract_tables()
+            table_texts = []
+            for tbl in tables:
+                rendered = _render_table(tbl)
+                if rendered:
+                    table_texts.append(rendered)
+
+            # Plain text for the rest of the page
+            plain = page.extract_text(x_tolerance=3, y_tolerance=3) or ""
+            if plain:
+                parts.append(plain)
+            # Append rendered tables after the plain text so they are clearly
+            # separated and the LLM sees them as structured data.
+            for t in table_texts:
+                parts.append("[TABLE]\n" + t + "\n[/TABLE]")
+            pages.append("\n".join(parts))
     return "\n".join(pages)
 
 

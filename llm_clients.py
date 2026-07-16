@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-6",
-    "openai": "gpt-4.1",
+    "anthropic": "claude-sonnet-5",    # balanced; use claude-fable-5 for max accuracy, claude-haiku-4-5 for speed
+    "openai": "gpt-5.6-terra",         # balanced; use gpt-5.6-sol for max accuracy, gpt-5.6-luna for speed
 }
 
 DEFAULT_CACHE_DIR = ".llm_cache"
@@ -66,6 +66,7 @@ def run_llm(
     user_prompt: str,
     use_cache: bool = True,
     cache_dir: str = DEFAULT_CACHE_DIR,
+    reasoning_effort: str = "high",
 ) -> str:
     if not api_key:
         raise ValueError(f"No API key provided for {provider}.")
@@ -92,13 +93,19 @@ def run_llm(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
+        _model = model or DEFAULT_MODELS["openai"]
+        if _model.startswith(("gpt-5.", "o1", "o3", "o4")):
+            # These models don't accept temperature; use seed + reasoning_effort.
+            _extra: dict = {"seed": 42, "reasoning_effort": reasoning_effort}
+        else:
+            _extra = {"temperature": 0, "seed": 42}
         resp = client.chat.completions.create(
-            model=model or DEFAULT_MODELS["openai"],
+            model=_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0,
+            **_extra,
         )
         text = resp.choices[0].message.content or ""
 
@@ -123,6 +130,7 @@ def run_llm_structured(
     tool_name: str = "emit_records",
     use_cache: bool = True,
     cache_dir: str = DEFAULT_CACHE_DIR,
+    reasoning_effort: str = "high",
 ) -> Dict[str, Any]:
     """Returns the parsed JSON object matching `json_schema` (a JSON-schema dict
     for a top-level object, e.g. {"type": "object", "properties": {"records": ...}}).
@@ -167,17 +175,22 @@ def run_llm_structured(
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
+        _model = model or DEFAULT_MODELS["openai"]
+        if _model.startswith(("gpt-5.", "o1", "o3", "o4")):
+            _extra: dict = {"seed": 42, "reasoning_effort": reasoning_effort}
+        else:
+            _extra = {"temperature": 0, "seed": 42}
         resp = client.chat.completions.create(
-            model=model or DEFAULT_MODELS["openai"],
+            model=_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": tool_name, "strict": True, "schema": json_schema},
             },
+            **_extra,
         )
         content = resp.choices[0].message.content or "{}"
         parsed = json.loads(content)
