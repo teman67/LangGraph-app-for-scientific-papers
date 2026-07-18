@@ -99,10 +99,11 @@ with st.sidebar:
         reasoning_effort = "high"  # ignored for non-supporting models
 
     use_cache = st.checkbox(
-        "Cache LLM calls on disk",
+        "Cache LLM calls",
         value=True,
         help="Avoids re-billing/re-calling the API for identical (document, prompt) pairs "
-        "across re-runs — useful when fixing/re-running just one paper.",
+        "across re-runs — useful when fixing/re-running just one paper. Backed by Redis "
+        "when REDIS_URL is set (e.g. on Heroku), otherwise falls back to local disk.",
     )
     max_chunk_chars = st.slider(
         "Max characters per chunk sent to the model",

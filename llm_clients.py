@@ -8,9 +8,12 @@ Provides:
   is far more reliable than asking for "JSON only" in the prompt and
   regexing it out of prose.
 
-Both are wrapped by a small on-disk cache so re-running the pipeline after
-fixing one paper doesn't re-bill/re-call the API for documents that didn't
-change.
+Both are wrapped by a small cache so re-running the pipeline after fixing
+one paper doesn't re-bill/re-call the API for documents that didn't change.
+The cache is backed by Redis when a `REDIS_URL` is configured (e.g. the
+Heroku Key-Value Store add-on) since Heroku's local filesystem is wiped on
+every deploy/dyno restart and isn't shared across dynos; otherwise it falls
+back to on-disk JSON files for local development.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ DEFAULT_MODELS = {
 }
 
 DEFAULT_CACHE_DIR = ".llm_cache"
+CACHE_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days; keeps the Redis mini plan's 25MB from filling up
 
 
 # ----------------------------------------------------------------------------
@@ -39,7 +43,34 @@ def _cache_key(*parts: str) -> str:
     return h.hexdigest()
 
 
+_redis_client = None
+_redis_checked = False
+
+
+def _get_redis_client():
+    global _redis_client, _redis_checked
+    if _redis_checked:
+        return _redis_client
+    _redis_checked = True
+    url = os.environ.get("REDIS_URL") or os.environ.get("REDIS_TLS_URL")
+    if not url:
+        return None
+    import redis
+
+    kwargs: Dict[str, Any] = {"decode_responses": True}
+    if url.startswith("rediss://"):
+        # Heroku's Redis certs aren't in the standard CA bundle.
+        kwargs["ssl_cert_reqs"] = None
+    _redis_client = redis.from_url(url, **kwargs)
+    return _redis_client
+
+
 def _cache_get(cache_dir: str, key: str) -> Optional[Any]:
+    client = _get_redis_client()
+    if client is not None:
+        raw = client.get(key)
+        return json.loads(raw) if raw is not None else None
+
     path = Path(cache_dir) / f"{key}.json"
     if path.exists():
         try:
@@ -50,6 +81,11 @@ def _cache_get(cache_dir: str, key: str) -> Optional[Any]:
 
 
 def _cache_set(cache_dir: str, key: str, value: Any) -> None:
+    client = _get_redis_client()
+    if client is not None:
+        client.set(key, json.dumps(value), ex=CACHE_TTL_SECONDS)
+        return
+
     os.makedirs(cache_dir, exist_ok=True)
     path = Path(cache_dir) / f"{key}.json"
     path.write_text(json.dumps(value))
