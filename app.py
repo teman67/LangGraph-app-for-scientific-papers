@@ -11,6 +11,7 @@ Run with:  streamlit run app.py
 """
 import io
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -19,6 +20,26 @@ from evaluation import evaluate
 from file_parsers import load_document, parse_input_schema, parse_output_headers
 from graph import assemble_rows, extract_single_document, node_load_ontology
 from mapping import map_fields_to_columns
+
+INPUTS_DIR = Path(__file__).parent / "inputs"
+BUNDLED_FILES = {
+    "ontology": INPUTS_DIR / "cto.ttl",
+    "input_schema": INPUTS_DIR / "LLM input- terms from CTO.xlsm",
+    "output_template": INPUTS_DIR / "LLM output- Gold standard.xlsm",
+}
+
+
+class _LocalFile:
+    """Duck-types Streamlit's UploadedFile (`.name` / `.getvalue()`) for a
+    file already on disk, so bundled inputs/ files can be fed through the
+    same code paths as manually uploaded ones."""
+
+    def __init__(self, path: Path):
+        self.name = path.name
+        self._path = path
+
+    def getvalue(self) -> bytes:
+        return self._path.read_bytes()
 
 st.set_page_config(page_title="CTO Data Extractor", page_icon="🧪", layout="wide")
 
@@ -118,10 +139,12 @@ with st.sidebar:
     st.divider()
     st.caption(
         "Files needed:\n"
-        "1. Source paper(s) — PDF or .txt\n"
+        "1. Source paper(s) — PDF or .txt (always uploaded manually)\n"
         "2. Input schema Excel (fields → ontology classes)\n"
         "3. Output template Excel (defines output columns)\n"
-        "4. Ontology file (.ttl)"
+        "4. Ontology file (.ttl)\n\n"
+        "Files 2–4 can be loaded with one click from the bundled inputs/ folder, "
+        "or uploaded manually."
     )
 
     st.divider()
@@ -138,6 +161,24 @@ with st.sidebar:
 # ----------------------------------------------------------------------------
 # Main: file uploads
 # ----------------------------------------------------------------------------
+bundled_available = all(p.exists() for p in BUNDLED_FILES.values())
+use_bundled = st.session_state.get("use_bundled_inputs", False)
+
+if bundled_available:
+    load_col, clear_col = st.columns([4, 1])
+    with load_col:
+        if st.button(
+            "📂 Load ontology, input schema & output template from inputs/",
+            help="Uses the bundled cto.ttl, input-schema and output-template files "
+            "shipped in this repo's inputs/ folder instead of uploading them manually.",
+        ):
+            st.session_state["use_bundled_inputs"] = True
+            use_bundled = True
+    with clear_col:
+        if use_bundled and st.button("✕ Clear", help="Switch back to manual upload."):
+            st.session_state["use_bundled_inputs"] = False
+            use_bundled = False
+
 col1, col2 = st.columns(2)
 
 with col1:
@@ -146,15 +187,25 @@ with col1:
         type=["pdf", "txt"],
         accept_multiple_files=True,
     )
-    input_schema_file = st.file_uploader(
-        "Input schema Excel (fields ↔ ontology classes)", type=["xlsx", "xlsm", "xls"]
-    )
+    if use_bundled:
+        input_schema_file = _LocalFile(BUNDLED_FILES["input_schema"])
+        st.success(f"✅ Using bundled: {input_schema_file.name}")
+    else:
+        input_schema_file = st.file_uploader(
+            "Input schema Excel (fields ↔ ontology classes)", type=["xlsx", "xlsm", "xls"]
+        )
 
 with col2:
-    output_template_file = st.file_uploader(
-        "Output template Excel (defines output columns)", type=["xlsx", "xlsm", "xls"]
-    )
-    ontology_file = st.file_uploader("Ontology file (.ttl)", type=["ttl"])
+    if use_bundled:
+        output_template_file = _LocalFile(BUNDLED_FILES["output_template"])
+        st.success(f"✅ Using bundled: {output_template_file.name}")
+        ontology_file = _LocalFile(BUNDLED_FILES["ontology"])
+        st.success(f"✅ Using bundled: {ontology_file.name}")
+    else:
+        output_template_file = st.file_uploader(
+            "Output template Excel (defines output columns)", type=["xlsx", "xlsm", "xls"]
+        )
+        ontology_file = st.file_uploader("Ontology file (.ttl)", type=["ttl"])
 
 ready_to_load = bool(source_files and input_schema_file and output_template_file and ontology_file)
 
