@@ -32,6 +32,27 @@ DEFAULT_CACHE_DIR = ".llm_cache"
 CACHE_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days; keeps the Redis mini plan's 25MB from filling up
 
 
+class InvalidAPIKeyError(RuntimeError):
+    """Raised when the provider rejects the API key (HTTP 401)."""
+
+
+def _check_auth_error(provider: str, exc: Exception) -> None:
+    """Re-raise `exc` as an InvalidAPIKeyError if it's an authentication failure.
+
+    Detected via `status_code == 401` (both the anthropic and openai SDKs set
+    this on their APIStatusError subclasses) rather than importing each SDK's
+    AuthenticationError class, since these providers are imported lazily and
+    a user may only have one of the two packages installed.
+    """
+    status = getattr(exc, "status_code", None)
+    if status == 401 or type(exc).__name__ == "AuthenticationError":
+        label = "Claude (Anthropic)" if provider == "anthropic" else "OpenAI"
+        raise InvalidAPIKeyError(
+            f"{label} rejected the API key (401 Unauthorized). Double-check the key "
+            "in the sidebar — it may be missing, revoked, or copied for the wrong provider."
+        ) from exc
+
+
 # ----------------------------------------------------------------------------
 # Cache
 # ----------------------------------------------------------------------------
@@ -117,12 +138,16 @@ def run_llm(
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=model or DEFAULT_MODELS["anthropic"],
-            max_tokens=4096,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        try:
+            resp = client.messages.create(
+                model=model or DEFAULT_MODELS["anthropic"],
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except Exception as e:  # noqa: BLE001
+            _check_auth_error("anthropic", e)
+            raise
         text = "".join(block.text for block in resp.content if block.type == "text")
 
     elif provider == "openai":
@@ -135,14 +160,18 @@ def run_llm(
             _extra: dict = {"seed": 42, "reasoning_effort": reasoning_effort}
         else:
             _extra = {"temperature": 0, "seed": 42}
-        resp = client.chat.completions.create(
-            model=_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            **_extra,
-        )
+        try:
+            resp = client.chat.completions.create(
+                model=_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                **_extra,
+            )
+        except Exception as e:  # noqa: BLE001
+            _check_auth_error("openai", e)
+            raise
         text = resp.choices[0].message.content or ""
 
     else:
@@ -185,20 +214,24 @@ def run_llm_structured(
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=model or DEFAULT_MODELS["anthropic"],
-            max_tokens=8192,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            tools=[
-                {
-                    "name": tool_name,
-                    "description": "Emit the extracted records matching the required schema.",
-                    "input_schema": json_schema,
-                }
-            ],
-            tool_choice={"type": "tool", "name": tool_name},
-        )
+        try:
+            resp = client.messages.create(
+                model=model or DEFAULT_MODELS["anthropic"],
+                max_tokens=8192,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                tools=[
+                    {
+                        "name": tool_name,
+                        "description": "Emit the extracted records matching the required schema.",
+                        "input_schema": json_schema,
+                    }
+                ],
+                tool_choice={"type": "tool", "name": tool_name},
+            )
+        except Exception as e:  # noqa: BLE001
+            _check_auth_error("anthropic", e)
+            raise
         parsed = None
         for block in resp.content:
             if block.type == "tool_use" and block.name == tool_name:
@@ -216,18 +249,22 @@ def run_llm_structured(
             _extra: dict = {"seed": 42, "reasoning_effort": reasoning_effort}
         else:
             _extra = {"temperature": 0, "seed": 42}
-        resp = client.chat.completions.create(
-            model=_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": tool_name, "strict": True, "schema": json_schema},
-            },
-            **_extra,
-        )
+        try:
+            resp = client.chat.completions.create(
+                model=_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": tool_name, "strict": True, "schema": json_schema},
+                },
+                **_extra,
+            )
+        except Exception as e:  # noqa: BLE001
+            _check_auth_error("openai", e)
+            raise
         content = resp.choices[0].message.content or "{}"
         parsed = json.loads(content)
 

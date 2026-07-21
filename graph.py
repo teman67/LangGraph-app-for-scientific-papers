@@ -28,7 +28,7 @@ from file_parsers import (
 )
 from mapping import ColumnMapping, map_fields_to_columns
 from ontology import OntologyTerm, find_term, load_ontology
-from llm_clients import run_llm, run_llm_structured
+from llm_clients import InvalidAPIKeyError, run_llm, run_llm_structured
 from validation import classify_field, validate_row
 
 
@@ -226,6 +226,8 @@ def extract_single_document(
                 reasoning_effort=reasoning_effort,
             )
             records = result.get("records", [])
+        except InvalidAPIKeyError:
+            raise  # same bad key would fail the repair retry too — don't bother
         except Exception as e:  # noqa: BLE001
             last_error = e
 
@@ -247,6 +249,8 @@ def extract_single_document(
                     reasoning_effort=reasoning_effort,
                 )
                 records = _parse_json_array_fallback(raw)
+            except InvalidAPIKeyError:
+                raise
             except Exception as e2:  # noqa: BLE001
                 warnings.append(
                     f"{doc.name} (chunk {chunk_idx + 1}/{len(chunks)}): extraction failed "

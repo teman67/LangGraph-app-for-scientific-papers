@@ -19,6 +19,7 @@ import streamlit as st
 from evaluation import evaluate
 from file_parsers import load_document, parse_input_schema, parse_output_headers
 from graph import assemble_rows, extract_single_document, node_load_ontology
+from llm_clients import InvalidAPIKeyError
 from mapping import map_fields_to_columns
 
 INPUTS_DIR = Path(__file__).parent / "inputs"
@@ -279,6 +280,7 @@ if run:
 
     from file_parsers import ParsedDocument
 
+    invalid_key_error = None
     for i, (name, text) in enumerate(docs):
         progress.progress(i / len(docs), text=f"Extracting from {name} ({i + 1}/{len(docs)})…")
         doc = ParsedDocument(name=name, text=text)
@@ -297,26 +299,31 @@ if run:
             )
             all_rows.extend(rows)
             all_warnings.extend(warns)
+        except InvalidAPIKeyError as e:
+            invalid_key_error = str(e)
+            break  # same key would fail on every remaining document too
         except Exception as e:  # noqa: BLE001
             all_warnings.append(f"{name}: {e}")
 
-    progress.progress(1.0, text="Assembling table…")
-    final_rows = assemble_rows(all_rows, st.session_state["data_columns"])
     progress.empty()
 
-    st.session_state["extracted_rows"] = final_rows
-    st.session_state["warnings"] = all_warnings
-
-    for w in all_warnings:
-        st.warning(w)
-    if not final_rows:
-        st.warning(
-            "No rows were extracted. Check that the papers actually contain creep-test data "
-            "outside the Introduction section, and that your API key/model are valid."
-        )
+    if invalid_key_error:
+        st.error(f"🔑 {invalid_key_error}")
     else:
-        n_flagged = sum(1 for r in final_rows if r.get("_validation_warnings"))
-        st.success(f"Extracted {len(final_rows)} row(s) — {n_flagged} flagged for review.")
+        final_rows = assemble_rows(all_rows, st.session_state["data_columns"])
+        st.session_state["extracted_rows"] = final_rows
+        st.session_state["warnings"] = all_warnings
+
+        for w in all_warnings:
+            st.warning(w)
+        if not final_rows:
+            st.warning(
+                "No rows were extracted. Check that the papers actually contain creep-test data "
+                "outside the Introduction section, and that your API key/model are valid."
+            )
+        else:
+            n_flagged = sum(1 for r in final_rows if r.get("_validation_warnings"))
+            st.success(f"Extracted {len(final_rows)} row(s) — {n_flagged} flagged for review.")
 
 # ----------------------------------------------------------------------------
 # Editable results table + download
