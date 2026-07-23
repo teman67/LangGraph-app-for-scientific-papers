@@ -87,6 +87,63 @@ documents that didn't change.
    overall score, and a row-by-row diff (row order doesn't need to match — rows are
    aligned by DOI/sample/material similarity).
 
+## Evaluation (gold-standard scoring)
+
+Available via the **📊 Evaluate against a gold-standard file** expander after
+extraction (`evaluation.py`). Upload a manually-filled workbook with the same columns
+as the output template, and the app scores the current run against it.
+
+### 1. Row alignment
+
+The model's row order won't match the gold file's, so rows are aligned first:
+
+- **Key columns** are picked from whichever shared columns contain `doi`, `sample`, or
+  `material` in their name (falls back to just the first column if none match).
+- Every predicted-row × gold-row pair is scored as the fraction of key columns that
+  match, and pairs are assigned greedily, highest score first, each row used at most
+  once.
+- A predicted row that never gets a positive-scoring gold match is flagged **"extra
+  predicted row"**; a gold row nothing matched is flagged **"missing"**.
+
+### 2. Field-level matching rules
+
+For each aligned row, every shared column (excluding `ID`) is compared value-by-value
+(`_values_match` / `_normalize`), checked in this order:
+
+1. Both values blank → **match**. ("Blank" covers both a missing predicted field and
+   an empty gold Excel cell — the latter comes back from `pandas` as float `NaN`, not
+   `None`, which `_normalize` treats as blank too, not as the literal text `"nan"`.)
+2. One blank, one not → **no match**.
+3. Normalized strings identical (lowercased, punctuation/units/symbols stripped down
+   to letters+digits+`.`) → **match**. This is why `"1095 C, 1 h/AC"` and
+   `"1095 °C, 1 h/AC"` count as the same value — normalization treats `°`, commas, and
+   slashes as formatting noise, not content.
+4. Both sides contain numbers and the extracted numeric tokens are identical (e.g.
+   `"159.74 ± 19.18 h"` vs `"159.74  19.18"`) → **match**, regardless of surrounding
+   text/units.
+5. Otherwise, fuzzy string similarity (`difflib.SequenceMatcher`) — **match** if the
+   ratio is **≥ 0.9**, else no match. This catches minor typos/reordering but not
+   paraphrasing (see limitation below).
+
+### 3. What "pass" and "fail" mean
+
+There's no single pass/fail verdict — the feature is diagnostic, not a gate. You get:
+
+- **Overall field accuracy** — correct fields ÷ total fields across all matched rows.
+- **Per-column accuracy bar chart** — which fields the model gets wrong most often.
+- **Rows matched** (X/Y) and a count of extra predicted rows.
+- A **row-by-row diff table** with `(gold)` / `(predicted)` / `(match)` per field, plus
+  "extra"/"missing" row notes — for manual review, not an automated accept/reject.
+
+### Known limitation: matching is lexical, not semantic
+
+Every rule above is string/number-based — there's no embedding or LLM-as-judge check
+anywhere in the pipeline. This is usually fine for numeric+unit fields (temperature,
+stress, percentages, times), since the numeric-token rule already ignores formatting.
+It's weaker for free-text descriptive fields (e.g. processing method), where a correct
+paraphrase can score below the 0.9 fuzzy threshold and get marked a mismatch even
+though it describes the same thing.
+
 ## Project layout
 
 ```
