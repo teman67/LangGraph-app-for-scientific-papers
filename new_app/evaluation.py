@@ -21,7 +21,11 @@ _KEY_HINTS = ("doi", "sample", "material")
 
 
 def _normalize(value: object) -> str:
-    text = "" if value is None else str(value)
+    # pandas represents a blank Excel cell as float NaN, not None — str(nan)
+    # is the literal text "nan", which would otherwise be treated as a
+    # non-empty value and never match a genuinely empty predicted field.
+    is_blank = value is None or (isinstance(value, float) and value != value)
+    text = "" if is_blank else str(value)
     text = re.sub(r"[^a-z0-9.]+", " ", text.lower())
     return " ".join(text.split())
 

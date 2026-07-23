@@ -107,14 +107,14 @@ with st.sidebar:
     if _supports_effort:
         reasoning_effort = st.select_slider(
             "Reasoning effort",
-            options=["low", "medium", "high", "max"],
+            options=["low", "medium", "high", "xhigh"],
             value="high",
             help=(
                 "How hard the model thinks before answering.\n"
                 "low — fastest, cheapest, more variable outputs.\n"
                 "medium — balanced.\n"
                 "high — recommended for data extraction (default).\n"
-                "max — most thorough, slowest, most expensive."
+                "xhigh — most thorough, slowest, most expensive."
             ),
         )
     else:
