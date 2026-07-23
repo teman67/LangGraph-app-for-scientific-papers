@@ -26,6 +26,9 @@ from llm_clients import InvalidAPIKeyError
 from mapping import map_fields_to_columns
 
 INPUTS_DIR = Path(__file__).parent / "inputs"
+# Long papers are split into overlapping chunks so results/tables late in the
+# paper aren't truncated away; not user-configurable in this app variant.
+MAX_CHUNK_CHARS = 15000
 BACKEND_FILES = {
     "ontology": INPUTS_DIR / "cto.ttl",
     "input_schema": INPUTS_DIR / "LLM input- terms from CTO.xlsm",
@@ -139,25 +142,6 @@ with st.sidebar:
         "across re-runs — useful when fixing/re-running just one paper. Backed by Redis "
         "when REDIS_URL is set (e.g. on Heroku), otherwise falls back to local disk.",
     )
-    max_chunk_chars = st.slider(
-        "Max characters per chunk sent to the model",
-        min_value=5000,
-        max_value=30000,
-        value=15000,
-        step=1000,
-        help="Long papers are split into overlapping chunks so results/tables late in the "
-        "paper aren't truncated away.",
-    )
-
-    st.divider()
-    st.caption(
-        "Only the source paper(s) are uploaded here — the input schema, output "
-        "template, and ontology are fixed backend configuration:\n"
-        f"- Ontology: `{BACKEND_FILES['ontology'].name}`\n"
-        f"- Input schema: `{BACKEND_FILES['input_schema'].name}`\n"
-        f"- Output template: `{BACKEND_FILES['output_template'].name}`"
-    )
-
     st.divider()
     st.markdown(
         "[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)]"
@@ -262,7 +246,7 @@ if run:
                 api_key=api_key,
                 model=model,
                 use_cache=use_cache,
-                max_chars_per_chunk=max_chunk_chars,
+                max_chars_per_chunk=MAX_CHUNK_CHARS,
                 reasoning_effort=reasoning_effort,
             )
             all_rows.extend(rows)
