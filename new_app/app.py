@@ -134,14 +134,6 @@ with st.sidebar:
         )
     else:
         reasoning_effort = "high"  # ignored for non-supporting models
-
-    use_cache = st.checkbox(
-        "Cache LLM calls",
-        value=True,
-        help="Avoids re-billing/re-calling the API for identical (document, prompt) pairs "
-        "across re-runs — useful when fixing/re-running just one paper. Backed by Redis "
-        "when REDIS_URL is set (e.g. on Heroku), otherwise falls back to local disk.",
-    )
     st.divider()
     st.markdown(
         "[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)]"
@@ -245,7 +237,6 @@ if run:
                 provider=provider,
                 api_key=api_key,
                 model=model,
-                use_cache=use_cache,
                 max_chars_per_chunk=MAX_CHUNK_CHARS,
                 reasoning_effort=reasoning_effort,
             )

@@ -43,7 +43,6 @@ class PipelineState(TypedDict, total=False):
     provider: str
     api_key: str
     model: str
-    use_cache: bool
 
     # derived
     field_specs: List[FieldSpec]
@@ -192,7 +191,6 @@ def extract_single_document(
     provider: str,
     api_key: str,
     model: str,
-    use_cache: bool = True,
     max_chars_per_chunk: int = 15000,
     reasoning_effort: str = "high",
 ) -> tuple[List[Dict[str, Any]], List[str]]:
@@ -222,7 +220,6 @@ def extract_single_document(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 json_schema=json_schema,
-                use_cache=use_cache,
                 reasoning_effort=reasoning_effort,
             )
             records = result.get("records", [])
@@ -245,7 +242,6 @@ def extract_single_document(
                     model=model,
                     system_prompt=system_prompt,
                     user_prompt=repair_prompt,
-                    use_cache=use_cache,
                     reasoning_effort=reasoning_effort,
                 )
                 records = _parse_json_array_fallback(raw)
@@ -322,7 +318,6 @@ def node_extract(state: PipelineState) -> PipelineState:
             provider=state["provider"],
             api_key=state["api_key"],
             model=state.get("model", ""),
-            use_cache=state.get("use_cache", True),
         )
         all_rows.extend(rows)
         warnings.extend(doc_warnings)

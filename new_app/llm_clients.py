@@ -8,28 +8,18 @@ Provides:
   is far more reliable than asking for "JSON only" in the prompt and
   regexing it out of prose.
 
-Both are wrapped by a small cache so re-running the pipeline after fixing
-one paper doesn't re-bill/re-call the API for documents that didn't change.
-The cache is backed by Redis when a `REDIS_URL` is configured (e.g. the
-Heroku Key-Value Store add-on) since Heroku's local filesystem is wiped on
-every deploy/dyno restart and isn't shared across dynos; otherwise it falls
-back to on-disk JSON files for local development.
+Unlike the main app, calls here are never cached — every extraction hits
+the provider API fresh.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import os
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-5",    # balanced; use claude-fable-5 for max accuracy, claude-haiku-4-5 for speed
     "openai": "gpt-5.6-terra",         # balanced; use gpt-5.6-sol for max accuracy, gpt-5.6-luna for speed
 }
-
-DEFAULT_CACHE_DIR = ".llm_cache"
-CACHE_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days; keeps the Redis mini plan's 25MB from filling up
 
 
 class InvalidAPIKeyError(RuntimeError):
@@ -54,65 +44,6 @@ def _check_auth_error(provider: str, exc: Exception) -> None:
 
 
 # ----------------------------------------------------------------------------
-# Cache
-# ----------------------------------------------------------------------------
-def _cache_key(*parts: str) -> str:
-    h = hashlib.sha256()
-    for p in parts:
-        h.update(p.encode("utf-8"))
-        h.update(b"\x00")
-    return h.hexdigest()
-
-
-_redis_client = None
-_redis_checked = False
-
-
-def _get_redis_client():
-    global _redis_client, _redis_checked
-    if _redis_checked:
-        return _redis_client
-    _redis_checked = True
-    url = os.environ.get("REDIS_URL") or os.environ.get("REDIS_TLS_URL")
-    if not url:
-        return None
-    import redis
-
-    kwargs: Dict[str, Any] = {"decode_responses": True}
-    if url.startswith("rediss://"):
-        # Heroku's Redis certs aren't in the standard CA bundle.
-        kwargs["ssl_cert_reqs"] = None
-    _redis_client = redis.from_url(url, **kwargs)
-    return _redis_client
-
-
-def _cache_get(cache_dir: str, key: str) -> Optional[Any]:
-    client = _get_redis_client()
-    if client is not None:
-        raw = client.get(key)
-        return json.loads(raw) if raw is not None else None
-
-    path = Path(cache_dir) / f"{key}.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except Exception:  # noqa: BLE001
-            return None
-    return None
-
-
-def _cache_set(cache_dir: str, key: str, value: Any) -> None:
-    client = _get_redis_client()
-    if client is not None:
-        client.set(key, json.dumps(value), ex=CACHE_TTL_SECONDS)
-        return
-
-    os.makedirs(cache_dir, exist_ok=True)
-    path = Path(cache_dir) / f"{key}.json"
-    path.write_text(json.dumps(value))
-
-
-# ----------------------------------------------------------------------------
 # Free-text completion
 # ----------------------------------------------------------------------------
 def run_llm(
@@ -121,18 +52,10 @@ def run_llm(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    use_cache: bool = True,
-    cache_dir: str = DEFAULT_CACHE_DIR,
     reasoning_effort: str = "high",
 ) -> str:
     if not api_key:
         raise ValueError(f"No API key provided for {provider}.")
-
-    key = _cache_key("text", provider, model, system_prompt, user_prompt)
-    if use_cache:
-        cached = _cache_get(cache_dir, key)
-        if cached is not None:
-            return cached["text"]
 
     if provider == "anthropic":
         import anthropic
@@ -177,8 +100,6 @@ def run_llm(
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
-    if use_cache:
-        _cache_set(cache_dir, key, {"text": text})
     return text
 
 
@@ -193,8 +114,6 @@ def run_llm_structured(
     user_prompt: str,
     json_schema: Dict[str, Any],
     tool_name: str = "emit_records",
-    use_cache: bool = True,
-    cache_dir: str = DEFAULT_CACHE_DIR,
     reasoning_effort: str = "high",
 ) -> Dict[str, Any]:
     """Returns the parsed JSON object matching `json_schema` (a JSON-schema dict
@@ -202,13 +121,6 @@ def run_llm_structured(
     """
     if not api_key:
         raise ValueError(f"No API key provided for {provider}.")
-
-    cache_key_material = json.dumps(json_schema, sort_keys=True)
-    key = _cache_key("structured", provider, model, system_prompt, user_prompt, cache_key_material)
-    if use_cache:
-        cached = _cache_get(cache_dir, key)
-        if cached is not None:
-            return cached
 
     if provider == "anthropic":
         import anthropic
@@ -271,6 +183,4 @@ def run_llm_structured(
     else:
         raise ValueError(f"Unknown provider: {provider}")
 
-    if use_cache:
-        _cache_set(cache_dir, key, parsed)
     return parsed
