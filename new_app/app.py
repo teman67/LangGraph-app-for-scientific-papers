@@ -59,7 +59,7 @@ def _load_backend_config(ontology_path: str, schema_path: str, template_path: st
     ontology_terms = node_load_ontology({"ontology_bytes": Path(ontology_path).read_bytes()})["ontology_terms"]
     return headers, data_columns, mappings, ontology_terms
 
-st.title("🧪 Creep Testing Ontology — Data Extraction")
+st.title("Creep Literature Knowledge Graph — Data Extraction")
 st.caption(
     "Extracts structured, ontology-grounded data from scientific papers into a "
     "spreadsheet, using an LLM of your choice. The Introduction section of each "
